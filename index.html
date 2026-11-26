@@ -221,7 +221,8 @@ function todayISO(){const t=new Date();return t.getFullYear()+"-"+String(t.getMo
 function dayNumToday(){const a=new Date(S.start+"T00:00:00"),b=new Date(todayISO()+"T00:00:00");return Math.max(1,Math.min(30,Math.round((b-a)/864e5)+1))}
 function dateOf(d){const a=new Date(S.start+"T00:00:00");a.setDate(a.getDate()+d-1);return a.toLocaleDateString("tr-TR",{day:"numeric",month:"short",weekday:"short"})}
 function D(d){return S.days[d]||(S.days[d]={ex:{}})}
-function lastVal(id,before){ // önceki en son değer
+function prevDay(id,before){for(let d=before-1;d>=1;d--){const v=S.days[d]&&S.days[d].ex[id];if(v&&v.v!=null)return [d,v.v]}return null}
+function lastVal(id,before){ // önceki en son değer: aynı hareketin bir önceki antrenmanındaki kg
   for(let d=before-1;d>=1;d--){const v=S.days[d]&&S.days[d].ex[id];if(v&&v.v!=null)return v.v}
   return EX[id].st;
 }
@@ -239,7 +240,7 @@ function curWeight(){const w=weights();return w.length?w[w.length-1][1]:START_WE
 /* ---------- Ekranlar ---------- */
 let tab="today", viewDay=dayNumToday(), chartEx="row";
 const app=document.getElementById("app");
-document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;if(tab==="today")viewDay=dayNumToday();render(true)});
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{flushInputs();tab=b.dataset.t;if(tab==="today")viewDay=dayNumToday();render(true)});
 
 function render(top){ // top=true sadece sekme/gün değişince; işaretleyince sayfa yerinde kalır
   const y=window.scrollY;
@@ -278,8 +279,8 @@ function renderDay(){
     const diff=EX[id].u==="kg"&&d>1&&v!==prev?` <span style="color:${v>prev?"var(--acc)":"var(--bad)"}">(${v>prev?"+":""}${(v-prev).toFixed(1)})</span>`:"";
     h+=`<div class="ex ${dn?"done":""}">
       <img class="pic" src="${e.img}" alt="" onclick="zoom('${id}')">
-      <div class="info"><div class="name">${nm(id)}</div><div class="tgt">Hedef: ${target(id,d)}</div>
-        <div class="num"><button onclick="bump('${id}',-1)">−</button><input type="number" inputmode="decimal" value="${v}" onchange="setV('${id}',this.value)"><span class="u">${e.u}${diff}</span><button onclick="bump('${id}',1)">+</button></div>
+      <div class="info"><div class="name">${nm(id)}</div><div class="tgt">Hedef: ${target(id,d)}</div>${prevDay(id,d)?`<div class="tgt">Önceki antrenman: <b>${prevDay(id,d)[1]} ${e.u}</b> (Gün ${prevDay(id,d)[0]})</div>`:""}
+        <div class="num"><button onclick="bump('${id}',-1)">−</button><input type="number" inputmode="decimal" data-id="${id}" value="${v}" oninput="liveV('${id}',this.value)" onchange="setV('${id}',this.value)"><span class="u">${e.u}${diff}</span><button onclick="bump('${id}',1)">+</button></div>
       </div>
       <button class="chk" onclick="toggle('${id}')" aria-label="Tamamlandı">✓</button>
     </div>`;
@@ -333,16 +334,20 @@ function weighCard(d,day){
     <div class="small muted" style="margin:4px 0 10px">${day.waist&&pz?"Önceki ölçüme göre:"+f(day.waist,pz,"cm"):"Mezurayı göbek deliği hizasında, yere paralel tut. Nefesini normal ver, karnını içe çekme, mezurayı sıkma."}</div>
     <button class="btn" style="width:100%" onclick="saveBw()">Ölçümü kaydet</button></div>`;
 }
-function go(n){viewDay=Math.max(1,Math.min(30,viewDay+n));render(true)}
+function go(n){flushInputs();viewDay=Math.max(1,Math.min(30,viewDay+n));render(true)}
 function num(id){const e=document.getElementById(id);return e?parseFloat(String(e.value).replace(",",".")):NaN}
 function saveBw(){const v=num("bw"),z=num("waist");
   if(isNaN(v)&&isNaN(z)){alert("Kilo veya bel ölçüsü gir");return}
   if(!isNaN(v)&&(v<30||v>250)){alert("Geçerli bir kilo gir");return}
   if(!isNaN(z)&&(z<50||z>200)){alert("Geçerli bir bel ölçüsü gir (cm)");return}
   const day=D(viewDay);if(!isNaN(v))day.bw=Math.round(v*10)/10;if(!isNaN(z))day.waist=Math.round(z*2)/2;save();render()}
+// Yazarken anında kaydet (sayfa yenilenmeden). Böylece ✓'ye basınca ya da uygulamayı kapatınca değer kaybolmaz.
+function liveV(id,v){v=parseFloat(String(v).replace(",","."));if(isNaN(v)||v<0)return;const day=D(viewDay);day.ex[id]=day.ex[id]||{};day.ex[id].v=v;save()}
+function flushInputs(){document.querySelectorAll("input[data-id]").forEach(i=>{if(i.value!=="")liveV(i.dataset.id,i.value)})}
+document.addEventListener("visibilitychange",()=>{if(document.hidden)flushInputs()});
 function setV(id,v){v=parseFloat(String(v).replace(",","."));if(isNaN(v)||v<0)v=0;const day=D(viewDay);day.ex[id]=day.ex[id]||{};day.ex[id].v=v;save();render()}
 function bump(id,dir){setV(id,Math.max(0,Math.round((val(id,viewDay)+dir*EX[id].step)*10)/10))}
-function toggle(id){const day=D(viewDay);day.ex[id]=day.ex[id]||{};if(day.ex[id].v==null)day.ex[id].v=val(id,viewDay);day.ex[id].done=!day.ex[id].done;save();render()}
+function toggle(id){flushInputs();const day=D(viewDay);day.ex[id]=day.ex[id]||{};if(day.ex[id].v==null)day.ex[id].v=val(id,viewDay);day.ex[id].done=!day.ex[id].done;save();render()}
 function zoom(id){document.getElementById("zoomImg").src=EX[id].img;document.getElementById("zoomTxt").innerHTML=`<b>${nm(id)}</b><br><span class="small">${tipOf(id)}</span>`;document.getElementById("zoom").style.display="flex"}
 
 function renderPlan(){
